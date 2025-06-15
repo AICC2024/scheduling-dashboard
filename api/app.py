@@ -320,6 +320,7 @@ def login():
             return jsonify({"error": "Invalid credentials"}), 401
 
         return jsonify({"message": "Login successful", "tenant_id": user['tenant_id']})
+        # Optionally, you could add session logic or token expiration here
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
