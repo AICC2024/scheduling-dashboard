@@ -1,0 +1,9 @@
+Flask
+Flask-Cors
+boto3
+psycopg2-binary
+python-dotenv
+gunicorn           # render uses PORT env var automatically
+pandas
+aiohttp            # used by openai if you add async calls
+openai
