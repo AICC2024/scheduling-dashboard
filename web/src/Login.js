@@ -10,11 +10,12 @@ const Login = ({ onLoginSuccess }) => {
   const [msg, setMsg] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
+  const baseUrl = process.env.REACT_APP_API_BASE_URL;
 
   const handleLogin = async (e) => {
     e.preventDefault();
     try {
-      const res = await axios.post('http://localhost:5050/login', { email, password });
+      const res = await axios.post(`${baseUrl}/login`, { email, password });
       localStorage.setItem('tenant_id', res.data.tenant_id);
       setMsg('Login successful');
       if (onLoginSuccess) onLoginSuccess();
