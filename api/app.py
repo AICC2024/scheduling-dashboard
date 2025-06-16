@@ -277,6 +277,11 @@ def register():
     if not email or not password:
         return jsonify({"error": "Email and password are required"}), 400
 
+    allowed_domains = {"ohcc.org", "naveonguides.com"}
+    domain = email.lower().split('@')[-1]
+    if domain not in allowed_domains:
+        return jsonify({"error": "Registration is restricted to authorized email domains."}), 403
+
     tenant_id = email.split('@')[1].split('.')[0]
     password_hash = generate_password_hash(password)
 
