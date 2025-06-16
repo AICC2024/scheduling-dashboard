@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: bookit-frontend
+    env: node
+    buildCommand: npm install && npm run build
+    startCommand: serve -s build
+    rootDir: web
