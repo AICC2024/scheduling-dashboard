@@ -84,7 +84,7 @@ def reset_password():
 @app.route('/live-details')
 def live_details():
     from datetime import datetime
-    dynamodb = boto3.resource('dynamodb')
+    dynamodb = boto3.resource('dynamodb', region_name=os.getenv("REGION", "us-east-1"))
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
     input_start = request.args.get("start")
@@ -131,15 +131,6 @@ def live_details():
         print("Sample appointment created_at:", appointments[0].get("created_at"))
     if patients:
         print("Sample patient created_at:", patients[0].get("created_at"))
-
-        # Show all patient rows for a specific ID
-        debug_patient_id = "25386"
-        all_patient_rows = [p for p in patients if str(p.get("patient_id")) == debug_patient_id]
-        if all_patient_rows:
-            print(f"\n--- All PATIENT rows for ID {debug_patient_id} ---")
-            print(pd.DataFrame(all_patient_rows).to_string(index=False))
-        else:
-            print(f"\nNo patient rows found for ID {debug_patient_id}")
 
     df_patients = pd.DataFrame(patients)
     df_appointments = pd.DataFrame(appointments)
@@ -205,7 +196,7 @@ def live_details():
 @app.route('/booked-by-provider')
 def booked_by_provider():
     from datetime import datetime
-    dynamodb = boto3.resource('dynamodb')
+    dynamodb = boto3.resource('dynamodb', region_name=os.getenv("REGION", "us-east-1"))
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
     input_start = request.args.get("start")
@@ -320,7 +311,6 @@ def login():
             return jsonify({"error": "Invalid credentials"}), 401
 
         return jsonify({"message": "Login successful", "tenant_id": user['tenant_id']})
-        # Optionally, you could add session logic or token expiration here
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
