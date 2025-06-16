@@ -13,10 +13,17 @@ const Register = () => {
   const handleRegister = async (e) => {
     e.preventDefault();
     try {
+      // Register the user
       await axios.post(`${baseUrl}/register`, { email, password });
-      setMsg('Registration successful. You can now log in.');
+
+      // Immediately log in with the same credentials
+      const loginRes = await axios.post(`${baseUrl}/login`, { email, password });
+
+      // Store tenant ID and redirect
+      sessionStorage.setItem('tenant_id', loginRes.data.tenant_id);
+      window.location.href = '/';
     } catch (err) {
-      setMsg(err.response?.data?.error || 'Registration failed');
+      setMsg(err.response?.data?.error || 'Registration or login failed');
     }
   };
 
