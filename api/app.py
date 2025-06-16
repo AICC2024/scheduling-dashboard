@@ -6,6 +6,8 @@ import boto3
 import pandas as pd
 import io
 import os
+# Set REGION from environment variable or default to "us-east-1"
+REGION = os.getenv("REGION", "us-east-1")
 # --- Auth-related imports ---
 from werkzeug.security import generate_password_hash, check_password_hash
 import uuid
@@ -84,7 +86,7 @@ def reset_password():
 @app.route('/live-details')
 def live_details():
     from datetime import datetime
-    dynamodb = boto3.resource('dynamodb', region_name=os.getenv("REGION", "us-east-1"))
+    dynamodb = boto3.resource('dynamodb', region_name=REGION)
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
     input_start = request.args.get("start")
@@ -196,7 +198,7 @@ def live_details():
 @app.route('/booked-by-provider')
 def booked_by_provider():
     from datetime import datetime
-    dynamodb = boto3.resource('dynamodb', region_name=os.getenv("REGION", "us-east-1"))
+    dynamodb = boto3.resource('dynamodb', region_name=REGION)
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
     input_start = request.args.get("start")
