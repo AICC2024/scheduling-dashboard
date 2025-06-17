@@ -166,14 +166,7 @@ useEffect(() => {
 
           const filteredData = res.data;
 
-          const deduplicatedData = Array.from(
-            new Map(filteredData.map(row => [
-              `${row['Patient ID']}_${row['Date']}_${row['Time']}_${row['Status']}`,
-              row
-            ])).values()
-          );
-
-          setDetails(deduplicatedData);
+          setDetails(filteredData);
 
           const summaryMap = {};
           let sentCount = 0;
