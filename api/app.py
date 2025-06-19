@@ -164,6 +164,7 @@ def live_details():
     merged_df['Patient ID'] = merged_df['patient_id_x']
     department_map = {
         "6": "OHCC Adult",
+        "18": "OHCC HAART",
         "22": "OHCC Denham",
         "27": "OHCC Baranco",
         "28": "OHCC Colonial",
