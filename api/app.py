@@ -322,5 +322,68 @@ def login():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+
+@app.route('/ai-show-rate')
+def ai_show_rate():
+    from boto3.dynamodb.conditions import Key, Attr
+    import calendar
+    from datetime import datetime
+    months = request.args.getlist("months")
+    if not months:
+        return jsonify({"error": "At least one month must be specified as 'YYYY-MM'."}), 400
+
+    try:
+        date_ranges = []
+        for month_str in months:
+            year, month = map(int, month_str.split("-"))
+            start_date = datetime(year, month, 1)
+            end_day = calendar.monthrange(year, month)[1]
+            end_date = datetime(year, month, end_day, 23, 59, 59)
+            date_ranges.append((start_date, end_date))
+    except Exception as e:
+        return jsonify({"error": f"Invalid month format: {e}"}), 400
+
+    dynamodb = boto3.resource('dynamodb', region_name=REGION)
+    table = dynamodb.Table(os.getenv("AI_BOOKINGS_TABLE_NAME"))
+
+    # Pull ALL items first
+    all_items = []
+    response = table.scan()
+    all_items.extend(response.get('Items', []))
+    while 'LastEvaluatedKey' in response:
+        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+        all_items.extend(response.get('Items', []))
+
+    print(f"Fetched {len(all_items)} total items from table")
+
+    booked = 0
+    kept = 0
+    now = datetime.utcnow()
+
+    for start_date, end_date in date_ranges:
+        for item in all_items:
+            appt_date_str = item.get("appointment_date", "")
+            try:
+                try:
+                    appt_date = datetime.strptime(appt_date_str, "%m/%d/%YT%H:%M:%S")
+                except ValueError:
+                    appt_date = datetime.strptime(appt_date_str, "%Y-%m-%dT%H:%M:%S")
+            except Exception as e:
+                print(f"Could not parse: {appt_date_str} — {e}")
+                continue
+
+            if start_date <= appt_date <= end_date and appt_date <= now:
+                booked += 1
+                if item.get("status") == "Kept":
+                    kept += 1
+
+    show_rate = round((kept / booked) * 100, 1) if booked else 0.0
+    return jsonify({
+        "months": months,
+        "booked": booked,
+        "kept": kept,
+        "show_rate": show_rate
+    })
+
 if __name__ == '__main__':
     app.run(debug=True)

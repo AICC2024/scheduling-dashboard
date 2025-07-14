@@ -4,6 +4,10 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContaine
 import { BrowserRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
 import Login from './Login';
 import Register from './Register';
+import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
+import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import { Button, Dialog, DialogTitle, DialogContent } from '@mui/material';
+import { MonthCalendar } from '@mui/x-date-pickers';
 
 const ProtectedRoute = ({ children }) => {
   const navigate = useNavigate();
@@ -37,6 +41,15 @@ function App() {
   const [presetRange, setPresetRange] = useState('last7');
   const [languageStats, setLanguageStats] = useState([]);
   const [methodStats, setMethodStats] = useState([]);
+  // AI Show Rate state and month selector
+  const [aiShowRate, setAiShowRate] = useState(null);
+  const [selectedMonths, setSelectedMonths] = useState(() => {
+    const now = new Date();
+    return [`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`];
+  });
+  // For AI Show Rate Month Picker dialog
+  const [monthDialogOpen, setMonthDialogOpen] = useState(false);
+  const [tempMonth, setTempMonth] = useState(new Date(`${selectedMonths[0]}-01T00:00:00`));
   // Inactivity logout (30 minutes) and auto-logout on browser close
   const timeoutRef = useRef(null);
 
@@ -236,7 +249,24 @@ useEffect(() => {
           console.error("Error fetching booked-by-provider:", err);
         });
     }
-  }, [baseUrl, selectedDate, dateMode, rangeStart, rangeEnd, presetRange]);
+    // Fetch AI Show Rate for selected months
+    axios
+      .get(`${baseUrl}/ai-show-rate`, {
+        params: new URLSearchParams(selectedMonths.map(m => ['months', m]))
+      })
+      .then((res) => {
+        setAiShowRate({
+  months: res.data.months,
+  total_booked: res.data.booked,
+  total_kept: res.data.kept,
+  show_up_rate: res.data.show_rate
+});
+      })
+      .catch((err) => {
+        console.error("Error fetching AI show rate:", err);
+      });
+  // eslint-disable-next-line
+}, [baseUrl, selectedDate, dateMode, rangeStart, rangeEnd, presetRange, selectedMonths]);
 
   return (
     <Router>
@@ -272,13 +302,96 @@ useEffect(() => {
                 <img src="/OH_color-logomark_transparent.png" alt="Open Health Care Clinic Logo" style={{ height: 90, marginRight: 20 }} />
                 <h1 style={{ fontSize: '1.8rem', margin: 0 }}>Open Health Care Clinic</h1>
               </div>
-              <div style={{ marginBottom: 20 }}>
-                <label style={{ marginRight: 10 }}>Date Mode:</label>
-                <select value={dateMode} onChange={e => setDateMode(e.target.value)}>
-                  <option value="single">Single Day</option>
-                  <option value="range">Date Range</option>
-                  <option value="preset">Preset</option>
-                </select>
+              <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 20 }}>
+                <div style={{ marginRight: 60 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ marginBottom: 6 }}>Date Mode:</label>
+                    <select value={dateMode} onChange={e => setDateMode(e.target.value)} style={{ marginBottom: 10 }}>
+                      <option value="single">Single Day</option>
+                      <option value="range">Date Range</option>
+                      <option value="preset">Preset</option>
+                    </select>
+                    {dateMode === 'single' && (
+                      <div>
+                        <label style={{ marginRight: 10 }}>Select Date:</label>
+                        <input
+                          type="date"
+                          value={selectedDate}
+                          onChange={e => setSelectedDate(e.target.value)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ marginRight: 60 }}>
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ marginBottom: 6 }}>AI Show Rate Mode:</label>
+                    <select
+                      value={selectedMonths.length === 1 ? 'single' : 'ytd'}
+                      onChange={(e) => {
+                        if (e.target.value === 'ytd') {
+                          const now = new Date();
+                          const year = now.getFullYear();
+                          const months = [];
+                          for (let m = 0; m <= now.getMonth(); m++) {
+                            const monthStr = `${year}-${(m + 1).toString().padStart(2, '0')}`;
+                            months.push(monthStr);
+                          }
+                          setSelectedMonths(months);
+                        } else {
+                          const now = new Date();
+                          const monthStr = `${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`;
+                          setSelectedMonths([monthStr]);
+                        }
+                      }}
+                      style={{ marginBottom: 10 }}
+                    >
+                      <option value="single">Single Month</option>
+                      <option value="ytd">Year to Date</option>
+                    </select>
+                    <div>
+                      <label style={{ marginRight: 10 }}>
+                        {selectedMonths.length === 1 ? 'Select Month:' : 'Select Year:'}
+                      </label>
+                      {selectedMonths.length === 1 ? (
+                        <Button
+                          variant="outlined"
+                          onClick={() => {
+                            setTempMonth(new Date(`${selectedMonths[0]}-01T00:00:00`));
+                            setMonthDialogOpen(true);
+                          }}
+                          style={{ textTransform: 'none' }}
+                        >
+                          {new Date(`${selectedMonths[0]}-01T00:00:00`).toLocaleString('default', {
+                            month: 'long',
+                            year: 'numeric',
+                          })}
+                        </Button>
+                      ) : (
+                        <select
+                          value={selectedMonths[0].split('-')[0]}
+                          onChange={(e) => {
+                            const selectedYear = e.target.value;
+                            const months = [];
+                            for (let m = 1; m <= 12; m++) {
+                              months.push(`${selectedYear}-${m.toString().padStart(2, '0')}`);
+                            }
+                            setSelectedMonths(months);
+                          }}
+                        >
+                          {Array.from({ length: 6 }, (_, i) => {
+                            const year = 2025 + i;
+                            return (
+                              <option key={year} value={year}>
+                                {year}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {dateMode === 'preset' && (
@@ -292,16 +405,6 @@ useEffect(() => {
                 </div>
               )}
 
-              {dateMode === 'single' && (
-                <div style={{ marginBottom: 20 }}>
-                  <label style={{ marginRight: 10 }}>Select Date:</label>
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={e => setSelectedDate(e.target.value)}
-                  />
-                </div>
-              )}
 
               {dateMode === 'range' && (
                 <div style={{ marginBottom: 20 }}>
@@ -365,7 +468,42 @@ useEffect(() => {
                   <h3 style={{ margin: 0 }}>Estimated Revenue</h3>
                   <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>${totalRevenue.toLocaleString()}</p>
                 </div>
+                <div style={{
+                  flex: 1,
+                  backgroundColor: '#e8f5e9',
+                  padding: '20px',
+                  margin: '0 10px',
+                  borderRadius: '8px',
+                  textAlign: 'center',
+                  border: '2px solid #4caf50'
+                }}>
+                  <h3 style={{ margin: 0 }}>AI Show Rate</h3>
+                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>
+                    {aiShowRate?.show_up_rate?.toFixed(1) || 0}%
+                  </p>
+                  <p style={{ marginTop: '6px', fontSize: '0.9rem' }}>
+                    {aiShowRate?.total_booked} booked / {aiShowRate?.total_kept} kept
+                  </p>
+                </div>
               </div>
+              {/* AI Show Rate Month Dialog */}
+              <Dialog open={monthDialogOpen} onClose={() => setMonthDialogOpen(false)}>
+                <DialogTitle>Select Month</DialogTitle>
+                <DialogContent>
+                  <LocalizationProvider dateAdapter={AdapterDateFns}>
+                    <MonthCalendar
+                      value={tempMonth}
+                      onChange={(newValue) => {
+                        const year = newValue.getFullYear();
+                        const month = (newValue.getMonth() + 1).toString().padStart(2, '0');
+                        setSelectedMonths([`${year}-${month}`]);
+                        setMonthDialogOpen(false);
+                      }}
+                    />
+                  </LocalizationProvider>
+                </DialogContent>
+              </Dialog>
+              {/* AI Show Rate KPI Card removed (now included in KPI row above) */}
               <h2>% of Bookings by Status</h2>
               <ResponsiveContainer width="100%" height={300}>
                 <BarChart data={summary} layout="vertical">
