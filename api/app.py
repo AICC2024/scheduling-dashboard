@@ -15,6 +15,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import secrets
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo          # built-in on Python 3.9+
 from botocore.exceptions import ClientError
 USERS = {}
 
@@ -125,14 +126,7 @@ def live_details():
     patients = scan_table(patient_table, start_date, end_date)
     appointments = scan_table(appointment_table, start_date, end_date)
 
-    print(f"Start Date: {start_date}, End Date: {end_date}")
-    print(f"Retrieved {len(appointments)} appointments")
-    print(f"Retrieved {len(patients)} patients")
-
-    if appointments:
-        print("Sample appointment created_at:", appointments[0].get("created_at"))
-    if patients:
-        print("Sample patient created_at:", patients[0].get("created_at"))
+    
 
     df_patients = pd.DataFrame(patients)
     df_appointments = pd.DataFrame(appointments)
@@ -325,65 +319,67 @@ def login():
 
 @app.route('/ai-show-rate')
 def ai_show_rate():
-    from boto3.dynamodb.conditions import Key, Attr
+    """
+    Returns booked / kept counts (and % show-rate) for one or more months.
+    Skips any appointment dated today or in the future unless its status is already 'Kept'.
+    """
     import calendar
     from datetime import datetime
+    from boto3.dynamodb.conditions import Key, Attr
+    import os
+
     months = request.args.getlist("months")
     if not months:
         return jsonify({"error": "At least one month must be specified as 'YYYY-MM'."}), 400
 
+    # Build inclusive date-ranges for every requested month
+    date_ranges = []
     try:
-        date_ranges = []
         for month_str in months:
             year, month = map(int, month_str.split("-"))
-            start_date = datetime(year, month, 1)
+            start = datetime(year, month, 1)
             end_day = calendar.monthrange(year, month)[1]
-            end_date = datetime(year, month, end_day, 23, 59, 59)
-            date_ranges.append((start_date, end_date))
-    except Exception as e:
-        return jsonify({"error": f"Invalid month format: {e}"}), 400
+            end   = datetime(year, month, end_day, 23, 59, 59)
+            date_ranges.append((start, end))
+    except ValueError:
+        return jsonify({"error": "Month must be in YYYY-MM format."}), 400
 
+    # Pull ALL rows from ai_bookings
     dynamodb = boto3.resource('dynamodb', region_name=REGION)
-    table = dynamodb.Table(os.getenv("AI_BOOKINGS_TABLE_NAME"))
-
-    # Pull ALL items first
+    table    = dynamodb.Table(os.getenv("AI_BOOKINGS_TABLE_NAME"))
     all_items = []
-    response = table.scan()
-    all_items.extend(response.get('Items', []))
-    while 'LastEvaluatedKey' in response:
-        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
-        all_items.extend(response.get('Items', []))
+    resp = table.scan()
+    all_items.extend(resp.get('Items', []))
+    while "LastEvaluatedKey" in resp:
+        resp = table.scan(ExclusiveStartKey=resp["LastEvaluatedKey"])
+        all_items.extend(resp.get('Items', []))
 
-    print(f"Fetched {len(all_items)} total items from table")
-
+    # --- counting logic ---
     booked = 0
-    kept = 0
-    now = datetime.now()
+    kept   = 0
+
+    clinic_tz = ZoneInfo(os.getenv("CLINIC_TIMEZONE", "America/Chicago"))
+    today = datetime.now(clinic_tz).date()
 
     for item in all_items:
-        appt_date_str = item.get("appointment_date", "")
+        appt_date_str = (item.get("appointment_date") or "").strip()
         try:
             try:
-                appt_date = datetime.strptime(appt_date_str.strip(), "%m/%d/%YT%H:%M:%S")
+                appt_date = datetime.strptime(appt_date_str, "%m/%d/%YT%H:%M:%S")
             except ValueError:
-                appt_date = datetime.strptime(appt_date_str.strip(), "%Y-%m-%dT%H:%M:%S")
-        except Exception as e:
-            print(f"❌ Could not parse appointment_date: {appt_date_str} — {e}")
+                appt_date = datetime.strptime(appt_date_str, "%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            continue  # skip bad rows silently
+
+        if appt_date.date() >= today:          # exclude today/future unless status already Kept
             continue
 
-        status = (item.get("status") or "").strip()
-     
-
-        if appt_date.date() >= now.date():
-      
+        if not any(start <= appt_date <= end for (start, end) in date_ranges):
             continue
 
-        # Track only if within selected month(s)
-        in_range = any(start <= appt_date <= end for (start, end) in date_ranges)
-        if in_range:
-            booked += 1
-            if status == "Kept":
-                kept += 1
+        booked += 1
+        if (item.get("status") or "").strip() == "Kept":
+            kept += 1
 
     show_rate = round((kept / booked) * 100, 1) if booked else 0.0
     return jsonify({
