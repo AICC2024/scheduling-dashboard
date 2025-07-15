@@ -358,24 +358,32 @@ def ai_show_rate():
 
     booked = 0
     kept = 0
-    now = datetime.utcnow()
+    now = datetime.now()
 
-    for start_date, end_date in date_ranges:
-        for item in all_items:
-            appt_date_str = item.get("appointment_date", "")
+    for item in all_items:
+        appt_date_str = item.get("appointment_date", "")
+        try:
             try:
-                try:
-                    appt_date = datetime.strptime(appt_date_str, "%m/%d/%YT%H:%M:%S")
-                except ValueError:
-                    appt_date = datetime.strptime(appt_date_str, "%Y-%m-%dT%H:%M:%S")
-            except Exception as e:
-                print(f"Could not parse: {appt_date_str} — {e}")
-                continue
+                appt_date = datetime.strptime(appt_date_str.strip(), "%m/%d/%YT%H:%M:%S")
+            except ValueError:
+                appt_date = datetime.strptime(appt_date_str.strip(), "%Y-%m-%dT%H:%M:%S")
+        except Exception as e:
+            print(f"❌ Could not parse appointment_date: {appt_date_str} — {e}")
+            continue
 
-            if start_date <= appt_date <= end_date and appt_date <= now:
-                booked += 1
-                if item.get("status") == "Kept":
-                    kept += 1
+        status = (item.get("status") or "").strip()
+     
+
+        if appt_date.date() >= now.date():
+      
+            continue
+
+        # Track only if within selected month(s)
+        in_range = any(start <= appt_date <= end for (start, end) in date_ranges)
+        if in_range:
+            booked += 1
+            if status == "Kept":
+                kept += 1
 
     show_rate = round((kept / booked) * 100, 1) if booked else 0.0
     return jsonify({
