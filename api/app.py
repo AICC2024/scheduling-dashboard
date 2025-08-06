@@ -93,6 +93,8 @@ def live_details():
     input_start = request.args.get("start")
     input_end = request.args.get("end")
 
+    print(f"[🕵️] live-details called with start={input_start} and end={input_end}")
+
     try:
         start_date = datetime.strptime(input_start, "%Y-%m-%d %H:%M:%S").strftime("%m/%d/%Y %H:%M:%S")
         end_date = datetime.strptime(input_end, "%Y-%m-%d %H:%M:%S").strftime("%m/%d/%Y %H:%M:%S")
@@ -121,12 +123,13 @@ def live_details():
             scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
             response = table.scan(**scan_kwargs)
             items.extend(response.get('Items', []))
+        print(f"[📦] Retrieved {len(items)} items from {table.name}")
         return items
 
     patients = scan_table(patient_table, start_date, end_date)
     appointments = scan_table(appointment_table, start_date, end_date)
 
-    
+    print(f"[✅] Patient records: {len(patients)} | Appointment records: {len(appointments)}")
 
     df_patients = pd.DataFrame(patients)
     df_appointments = pd.DataFrame(appointments)
@@ -188,6 +191,8 @@ def live_details():
     # Ensure email and tenant_id columns exist and are filled
    
     columns = ['Patient ID', 'Date', 'Time', 'Department', 'Provider Name', 'Status', 'Duplicate', 'pt_language', 'reach_out_medium']
+
+    print(f"[📊] Returning {len(merged_df)} deduplicated results")
     return jsonify(merged_df[columns].to_dict(orient='records'))
 
 @app.route('/booked-by-provider')
@@ -363,13 +368,16 @@ def ai_show_rate():
 
     for item in all_items:
         appt_date_str = (item.get("appointment_date") or "").strip()
-        try:
+        appt_date = None
+
+        for fmt in ("%m/%d/%YT%H:%M:%S", "%m/%d/%Y %H:%M:%S", "%Y-%m-%dT%H:%M:%S"):
             try:
-                appt_date = datetime.strptime(appt_date_str, "%m/%d/%YT%H:%M:%S")
+                appt_date = datetime.strptime(appt_date_str, fmt)
+                break
             except ValueError:
-                appt_date = datetime.strptime(appt_date_str, "%Y-%m-%dT%H:%M:%S")
-        except Exception:
-            continue  # skip bad rows silently
+                continue
+        if not appt_date:
+            continue  # skip if date can't be parsed
 
         if appt_date.date() >= today:          # exclude today/future unless status already Kept
             continue
