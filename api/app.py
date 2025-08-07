@@ -397,5 +397,23 @@ def ai_show_rate():
         "show_rate": show_rate
     })
 
+
+# --- AWS Credentials Debug Route ---
+@app.route('/debug-aws')
+def debug_aws():
+    import boto3
+    from botocore.exceptions import ClientError
+
+    try:
+        sts = boto3.client('sts')
+        identity = sts.get_caller_identity()
+        return jsonify({
+            "Account": identity.get("Account"),
+            "UserId": identity.get("UserId"),
+            "Arn": identity.get("Arn")
+        })
+    except ClientError as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
     app.run(debug=True)
