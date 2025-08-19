@@ -199,13 +199,32 @@ useEffect(() => {
           setTotalSent(sentCount);
 
           const bookedRows = filteredData.filter(row => row.Status === 'Booked');
-          const uniqueBooked = new Set(bookedRows.map(row =>
-            `${row['Patient ID']}_${row['Date']}_${row['Time']}_${row['Status']}`
-          ));
-          const bookedCount = uniqueBooked.size;
+
+          // Deduplicate booked rows by patient/date/time/status (same logic as before)
+          const uniqueKeys = new Set();
+          let bookedCount = 0;
+
+          // Revenue by effective date: before 2025-07-01 -> 154; on/after 2025-07-01 -> 175
+          const RATE_CHANGE_DATE = '2025-07-01';
+          const OLD_RATE = 154;
+          const NEW_RATE = 175;
+          let revenueSum = 0;
+
+          bookedRows.forEach(row => {
+            const key = `${row['Patient ID']}_${row['Date']}_${row['Time']}_${row['Status']}`;
+            if (!uniqueKeys.has(key)) {
+              uniqueKeys.add(key);
+              bookedCount += 1;
+
+              // row['Date'] is expected in 'YYYY-MM-DD' format; string compare works for ISO dates
+              const rate = (row['Date'] && row['Date'] >= RATE_CHANGE_DATE) ? NEW_RATE : OLD_RATE;
+              revenueSum += rate;
+            }
+          });
+
           setTotalBooked(bookedCount);
           setPercentBooked(sentCount ? ((bookedCount / sentCount) * 100).toFixed(1) : 0);
-          setTotalRevenue(bookedCount * 154);
+          setTotalRevenue(revenueSum);
 
           const langCounts = {};
           const mediumCounts = {};
