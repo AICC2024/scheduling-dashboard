@@ -47,6 +47,10 @@ function App() {
     const now = new Date();
     return [`${now.getFullYear()}-${(now.getMonth() + 1).toString().padStart(2, '0')}`];
   });
+  // Explicit year selection for AI Show Rate Single Month
+  const [selectedYear, setSelectedYear] = useState(() => {
+    return parseInt(new Date().getFullYear(), 10);
+  });
   // For AI Show Rate Month Picker dialog
   const [monthDialogOpen, setMonthDialogOpen] = useState(false);
   const [tempMonth, setTempMonth] = useState(new Date(`${selectedMonths[0]}-01T00:00:00`));
@@ -369,6 +373,39 @@ useEffect(() => {
                       <option value="ytd">Year to Date</option>
                     </select>
                     <div>
+                      {/* Year dropdown for explicit year selection in Single Month mode */}
+                      {selectedMonths.length === 1 && (
+                        <div style={{ marginBottom: 8 }}>
+                          <label style={{ marginRight: 10 }}>Select Year:</label>
+                          <select
+                            value={selectedYear}
+                            onChange={(e) => {
+                              const year = e.target.value;
+                              setSelectedYear(year);
+
+                              // Preserve current month while switching year
+                              const month = selectedMonths[0].split('-')[1];
+                              setSelectedMonths([`${year}-${month}`]);
+                            }}
+                          >
+                            {/* Limit year range visibly */}
+                            {(() => {
+                              const currentYear = new Date().getFullYear();
+                              const years = [];
+                              for (let y = currentYear - 1; y <= currentYear; y++) {
+                                years.push(y);
+                              }
+                              // Also always include 2025 for explicit 2025 support
+                              if (!years.includes(2025)) years.unshift(2025);
+                              return years.map((year) => (
+                                <option key={year} value={year}>
+                                  {year}
+                                </option>
+                              ));
+                            })()}
+                          </select>
+                        </div>
+                      )}
                       <label style={{ marginRight: 10 }}>
                         {selectedMonths.length === 1 ? 'Select Month:' : 'Select Year:'}
                       </label>
@@ -376,7 +413,7 @@ useEffect(() => {
                         <Button
                           variant="outlined"
                           onClick={() => {
-                            setTempMonth(new Date(`${selectedMonths[0]}-01T00:00:00`));
+                            setTempMonth(new Date(`${selectedYear}-${selectedMonths[0].split('-')[1]}-01T00:00:00`));
                             setMonthDialogOpen(true);
                           }}
                           style={{ textTransform: 'none' }}
@@ -513,9 +550,8 @@ useEffect(() => {
                     <MonthCalendar
                       value={tempMonth}
                       onChange={(newValue) => {
-                        const year = newValue.getFullYear();
                         const month = (newValue.getMonth() + 1).toString().padStart(2, '0');
-                        setSelectedMonths([`${year}-${month}`]);
+                        setSelectedMonths([`${selectedYear}-${month}`]);
                         setMonthDialogOpen(false);
                       }}
                     />
