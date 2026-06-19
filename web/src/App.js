@@ -122,19 +122,100 @@ function App() {
     }
   };
 
+  const formatDateForApi = (date) => date.toISOString().split('T')[0];
+
+  const monthKeyFromDate = (dateValue) => {
+    if (!dateValue) return null;
+    return dateValue.slice(0, 7);
+  };
+
+  const monthLabel = (monthKey) => {
+    if (!monthKey) return '';
+    return new Date(`${monthKey}-01T00:00:00`).toLocaleString('default', {
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const getDashboardDateRange = () => {
+    const today = new Date();
+
+    if (dateMode === 'single') {
+      return selectedDate ? { startDate: selectedDate, endDate: selectedDate } : null;
+    }
+
+    if (dateMode === 'range') {
+      return rangeStart && rangeEnd ? { startDate: rangeStart, endDate: rangeEnd } : null;
+    }
+
+    if (presetRange === 'last7') {
+      const start = new Date();
+      start.setDate(today.getDate() - 6);
+      return {
+        startDate: formatDateForApi(start),
+        endDate: formatDateForApi(today),
+      };
+    }
+
+    if (presetRange === 'lastMonth') {
+      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const end = new Date(today.getFullYear(), today.getMonth(), 0);
+      return {
+        startDate: formatDateForApi(start),
+        endDate: formatDateForApi(end),
+      };
+    }
+
+    if (presetRange === 'ytd') {
+      const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
+      return {
+        startDate: formatDateForApi(firstDayOfYear),
+        endDate: formatDateForApi(today),
+      };
+    }
+
+    return null;
+  };
+
+  const getReportMonthRange = () => {
+    const dashboardRange = getDashboardDateRange();
+    if (!dashboardRange) return null;
+
+    const start = monthKeyFromDate(dashboardRange.startDate);
+    const end = monthKeyFromDate(dashboardRange.endDate);
+    if (!start || !end) return null;
+
+    return start <= end ? { start, end } : { start: end, end: start };
+  };
+
+  const reportMonthRange = getReportMonthRange();
+  const reportRangeLabel = reportMonthRange
+    ? `${monthLabel(reportMonthRange.start)} through ${monthLabel(reportMonthRange.end)}`
+    : 'Select a valid dashboard date range';
+
   const handleDownloadMetricsReport = async () => {
+    const range = getReportMonthRange();
+    if (!range) {
+      setReportError("Select a valid dashboard date range before generating the Excel report.");
+      return;
+    }
+
     setReportGenerating(true);
     setReportError(null);
 
     try {
       const res = await axios.get(`${baseUrl}/reports/monthly-metrics.xlsx`, {
+        params: {
+          start: range.start,
+          end: range.end,
+        },
         responseType: 'blob'
       });
 
       const blobUrl = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = blobUrl;
-      link.download = 'bookit_monthly_metrics.xlsx';
+      link.download = `bookit_monthly_metrics_${range.start}_to_${range.end}.xlsx`;
       document.body.appendChild(link);
       link.click();
       link.remove();
@@ -164,21 +245,20 @@ useEffect(() => {
       startTime = `${rangeStart} 00:00:00`;
       endTime = `${rangeEnd} 23:59:59`;
     } else {
-      const formatDate = (d) => d.toISOString().split('T')[0];
       const firstDayOfYear = new Date(today.getFullYear(), 0, 1);
       if (presetRange === 'last7') {
         const start = new Date();
         start.setDate(today.getDate() - 6);
-        startTime = `${formatDate(start)} 00:00:00`;
-        endTime = `${formatDate(today)} 23:59:59`;
+        startTime = `${formatDateForApi(start)} 00:00:00`;
+        endTime = `${formatDateForApi(today)} 23:59:59`;
       } else if (presetRange === 'lastMonth') {
         const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
         const end = new Date(today.getFullYear(), today.getMonth(), 0);
-        startTime = `${formatDate(start)} 00:00:00`;
-        endTime = `${formatDate(end)} 23:59:59`;
+        startTime = `${formatDateForApi(start)} 00:00:00`;
+        endTime = `${formatDateForApi(end)} 23:59:59`;
       } else if (presetRange === 'ytd') {
-        startTime = `${formatDate(firstDayOfYear)} 00:00:00`;
-        endTime = `${formatDate(today)} 23:59:59`;
+        startTime = `${formatDateForApi(firstDayOfYear)} 00:00:00`;
+        endTime = `${formatDateForApi(today)} 23:59:59`;
       }
     }
     const hasValidRange = startTime && endTime && !startTime.includes('null') && !endTime.includes('null');
@@ -497,22 +577,22 @@ useEffect(() => {
                 <div>
                   <button
                     onClick={handleDownloadMetricsReport}
-                    disabled={reportGenerating}
+                    disabled={reportGenerating || !reportMonthRange}
                     style={{
-                      backgroundColor: reportGenerating ? '#9e9e9e' : '#1976d2',
+                      backgroundColor: reportGenerating || !reportMonthRange ? '#9e9e9e' : '#1976d2',
                       color: 'white',
                       border: 'none',
                       padding: '10px 16px',
                       borderRadius: '4px',
-                      cursor: reportGenerating ? 'wait' : 'pointer',
+                      cursor: reportGenerating ? 'wait' : reportMonthRange ? 'pointer' : 'not-allowed',
                       fontSize: '15px',
                       marginTop: 24
                     }}
                   >
-                    {reportGenerating ? 'Generating Excel...' : 'Download Excel Metrics'}
+                    {reportGenerating ? 'Generating Excel...' : 'Download Excel Metrics for Selected Range'}
                   </button>
                   <div style={{ marginTop: 6, color: '#666', fontSize: '0.85rem' }}>
-                    Jan 2025 through last completed month
+                    Exports {reportRangeLabel}
                   </div>
                 </div>
               </div>
