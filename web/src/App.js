@@ -22,7 +22,7 @@ const ProtectedRoute = ({ children }) => {
 };
 
 function App() {
-  const baseUrl = process.env.REACT_APP_API_BASE_URL || 'https://scheduling-dashboard-backend.onrender.com';
+  const baseUrl = process.env.REACT_APP_API_BASE_URL || 'https://scheduling-dashboard.onrender.com';
   console.log("Using API base URL:", baseUrl);
   const [summary, setSummary] = useState([]);
   const [bookedData, setBookedData] = useState([]);

@@ -1,11 +1,15 @@
 from flask_cors import CORS
 from dotenv import load_dotenv
-load_dotenv()
 from flask import Flask, jsonify, request
 import boto3
 import pandas as pd
 import io
 import os
+from pathlib import Path
+
+API_DIR = Path(__file__).resolve().parent
+load_dotenv(API_DIR / ".env")
+load_dotenv(API_DIR.parent / ".env", override=True)
 # Set REGION from environment variable or default to "us-east-1"
 REGION = os.getenv("REGION", "us-east-1")
 # --- Auth-related imports ---
@@ -26,6 +30,66 @@ CORS(app, supports_credentials=True, origins=os.getenv("FRONTEND_URL", "*"))
 
 import smtplib
 from email.mime.text import MIMEText
+
+DATE_FORMATS = (
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%YT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%dT%H:%M:%S",
+)
+
+
+def parse_datetime(value):
+    if value is None:
+        return None
+
+    value = str(value).strip()
+    if not value:
+        return None
+
+    for fmt in DATE_FORMATS:
+        try:
+            return datetime.strptime(value, fmt)
+        except ValueError:
+            continue
+
+    parsed = pd.to_datetime(value, errors='coerce')
+    if pd.isna(parsed):
+        return None
+    return parsed.to_pydatetime()
+
+
+def parse_request_datetime(value):
+    parsed = parse_datetime(value)
+    if not parsed:
+        raise ValueError("Date must be in YYYY-MM-DD HH:MM:SS format")
+    return parsed
+
+
+def scan_all_items(table):
+    items = []
+    response = table.scan()
+    items.extend(response.get('Items', []))
+    while 'LastEvaluatedKey' in response:
+        response = table.scan(ExclusiveStartKey=response['LastEvaluatedKey'])
+        items.extend(response.get('Items', []))
+    return items
+
+
+def filter_items_by_created_at(items, start, end):
+    filtered = []
+    for item in items:
+        created_at = parse_datetime(item.get("created_at"))
+        if created_at and start <= created_at <= end:
+            filtered.append(item)
+    return filtered
+
+
+def scan_table_by_created_at(table, start, end):
+    items = scan_all_items(table)
+    filtered = filter_items_by_created_at(items, start, end)
+    print(f"[📦] Retrieved {len(filtered)} of {len(items)} items from {table.name}")
+    return filtered
 
 @app.route('/request-reset', methods=['POST'])
 def request_reset():
@@ -86,7 +150,6 @@ def reset_password():
 
 @app.route('/live-details')
 def live_details():
-    from datetime import datetime
     dynamodb = boto3.resource('dynamodb', region_name=REGION)
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
@@ -96,8 +159,8 @@ def live_details():
     print(f"[🕵️] live-details called with start={input_start} and end={input_end}")
 
     try:
-        start_date = datetime.strptime(input_start, "%Y-%m-%d %H:%M:%S").strftime("%m/%d/%Y %H:%M:%S")
-        end_date = datetime.strptime(input_end, "%Y-%m-%d %H:%M:%S").strftime("%m/%d/%Y %H:%M:%S")
+        start_date = parse_request_datetime(input_start)
+        end_date = parse_request_datetime(input_end)
     except Exception as e:
         return jsonify({"error": f"Invalid date format: {e}"}), 400
 
@@ -107,27 +170,8 @@ def live_details():
     patient_table = dynamodb.Table(patient_table_name)
     appointment_table = dynamodb.Table(appointment_table_name)
 
-    def scan_table(table, start, end):
-        scan_kwargs = {
-            'FilterExpression': "#created BETWEEN :start AND :end",
-            'ExpressionAttributeNames': {'#created': 'created_at'},
-            'ExpressionAttributeValues': {
-                ':start': start,
-                ':end': end
-            }
-        }
-        items = []
-        response = table.scan(**scan_kwargs)
-        items.extend(response.get('Items', []))
-        while 'LastEvaluatedKey' in response:
-            scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
-            response = table.scan(**scan_kwargs)
-            items.extend(response.get('Items', []))
-        print(f"[📦] Retrieved {len(items)} items from {table.name}")
-        return items
-
-    patients = scan_table(patient_table, start_date, end_date)
-    appointments = scan_table(appointment_table, start_date, end_date)
+    patients = scan_table_by_created_at(patient_table, start_date, end_date)
+    appointments = scan_table_by_created_at(appointment_table, start_date, end_date)
 
     print(f"[✅] Patient records: {len(patients)} | Appointment records: {len(appointments)}")
 
@@ -197,7 +241,6 @@ def live_details():
 
 @app.route('/booked-by-provider')
 def booked_by_provider():
-    from datetime import datetime
     dynamodb = boto3.resource('dynamodb', region_name=REGION)
     patient_table_name = os.getenv("PATIENT_TABLE_NAME")
     appointment_table_name = os.getenv("APPOINTMENT_TABLE_NAME")
@@ -205,34 +248,16 @@ def booked_by_provider():
     input_end = request.args.get("end")
 
     try:
-        start_date = datetime.strptime(input_start, "%Y-%m-%d").strftime("%m/%d/%Y 00:00:00")
-        end_date = datetime.strptime(input_end, "%Y-%m-%d").strftime("%m/%d/%Y 23:59:59")
+        start_date = parse_request_datetime(f"{input_start} 00:00:00")
+        end_date = parse_request_datetime(f"{input_end} 23:59:59")
     except Exception as e:
         return jsonify({"error": f"Invalid date format: {e}"}), 400
-
-    def scan_table(table, start, end):
-        scan_kwargs = {
-            'FilterExpression': "#created BETWEEN :start AND :end",
-            'ExpressionAttributeNames': {'#created': 'created_at'},
-            'ExpressionAttributeValues': {
-                ':start': start,
-                ':end': end
-            }
-        }
-        items = []
-        response = table.scan(**scan_kwargs)
-        items.extend(response.get('Items', []))
-        while 'LastEvaluatedKey' in response:
-            scan_kwargs['ExclusiveStartKey'] = response['LastEvaluatedKey']
-            response = table.scan(**scan_kwargs)
-            items.extend(response.get('Items', []))
-        return items
 
     patient_table = dynamodb.Table(patient_table_name)
     appointment_table = dynamodb.Table(appointment_table_name)
 
-    patients = scan_table(patient_table, start_date, end_date)
-    appointments = scan_table(appointment_table, start_date, end_date)
+    patients = scan_table_by_created_at(patient_table, start_date, end_date)
+    appointments = scan_table_by_created_at(appointment_table, start_date, end_date)
 
     df_patients = pd.DataFrame(patients)
     df_appointments = pd.DataFrame(appointments)
