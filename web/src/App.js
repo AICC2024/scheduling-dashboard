@@ -30,6 +30,10 @@ function App() {
   const [totalRevenue, setTotalRevenue] = useState(0);
   const [selectedDate, setSelectedDate] = useState(null);
   const [loadingDate, setLoadingDate] = useState(true);
+  const [metricsLoading, setMetricsLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [metricsError, setMetricsError] = useState(null);
+  const [aiError, setAiError] = useState(null);
   const [totalSent, setTotalSent] = useState(0);
   const [percentBooked, setPercentBooked] = useState(0);
   const [selectedStatus, setSelectedStatus] = useState(null);
@@ -88,38 +92,13 @@ function App() {
   // New collapsible state variables for details sections
   const [statusDetailsCollapsed, setStatusDetailsCollapsed] = useState(false);
   const [providerDetailsCollapsed, setProviderDetailsCollapsed] = useState(false);
+  const isAnyMetricLoading = metricsLoading || aiLoading;
   useEffect(() => {
-    const checkRecentDates = async () => {
-      const today = new Date();
-      const format = (d) => d.toISOString().split('T')[0];
-
-      for (let i = 1; i <= 7; i++) {
-        const testDate = new Date(today);
-        testDate.setDate(today.getDate() - i);
-        const dateStr = format(testDate);
-
-        const start = `${dateStr} 00:00:00`;
-        const end = `${dateStr} 23:59:59`;
-
-        try {
-          const res = await axios.get(`${baseUrl}/live-details`, {
-            params: { start, end }
-          });
-
-          if (res.data && res.data.length > 0) {
-            setSelectedDate(dateStr);
-            break;
-          }
-        } catch (err) {
-          console.error(`Error checking date ${dateStr}`, err);
-        }
-      }
-
-      setLoadingDate(false);
-    };
-
-    checkRecentDates();
-  }, [baseUrl]);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    setSelectedDate(yesterday.toISOString().split('T')[0]);
+    setLoadingDate(false);
+  }, []);
 
   const handleStatusClick = (data) => {
     if (selectedStatus === data.Status) {
@@ -142,6 +121,7 @@ function App() {
   };
 
 useEffect(() => {
+  let cancelled = false;
   let startTime, endTime;
   if (dateMode === 'single' && !selectedDate) return;
   const today = new Date();
@@ -174,11 +154,18 @@ useEffect(() => {
         endTime = `${formatDate(today)} 23:59:59`;
       }
     }
-    if (!startTime.includes('null') && !endTime.includes('null')) {
-      axios.get(`${baseUrl}/live-details`, {
+    const hasValidRange = startTime && endTime && !startTime.includes('null') && !endTime.includes('null');
+    const metricRequests = [];
+
+    if (hasValidRange) {
+      setMetricsLoading(true);
+      setMetricsError(null);
+
+      const detailsRequest = axios.get(`${baseUrl}/live-details`, {
         params: { start: startTime, end: endTime }
       })
         .then(res => {
+          if (cancelled) return;
           console.log("Live details response:", res.data);
 
           const filteredData = res.data;
@@ -252,32 +239,53 @@ useEffect(() => {
             count,
             percent: totalMedium ? ((count / totalMedium) * 100).toFixed(1) : '0'
           })));
+        })
+        .catch((err) => {
+          console.error("Error fetching live details:", err);
+          if (!cancelled) {
+            setMetricsError("Dashboard metrics could not be loaded. Please try again.");
+          }
         });
+
+      metricRequests.push(detailsRequest);
     }
 
-    if (
-      startTime &&
-      endTime &&
-      !startTime.includes('null') &&
-      !endTime.includes('null')
-    ) {
-      axios
+    if (hasValidRange) {
+      const providerRequest = axios
         .get(
           `${baseUrl}/booked-by-provider?start=${startTime.split(' ')[0]}&end=${endTime.split(' ')[0]}`
         )
         .then((res) => {
+          if (cancelled) return;
           setBookedData(res.data);
         })
         .catch((err) => {
           console.error("Error fetching booked-by-provider:", err);
+          if (!cancelled) {
+            setMetricsError("Provider metrics could not be loaded. Please try again.");
+          }
         });
+
+      metricRequests.push(providerRequest);
     }
+
+    if (metricRequests.length > 0) {
+      Promise.allSettled(metricRequests).then(() => {
+        if (!cancelled) {
+          setMetricsLoading(false);
+        }
+      });
+    }
+
     // Fetch AI Show Rate for selected months
+    setAiLoading(true);
+    setAiError(null);
     axios
       .get(`${baseUrl}/ai-show-rate`, {
         params: new URLSearchParams(selectedMonths.map(m => ['months', m]))
       })
       .then((res) => {
+        if (cancelled) return;
         setAiShowRate({
   months: res.data.months,
   total_booked: res.data.booked,
@@ -287,7 +295,18 @@ useEffect(() => {
       })
       .catch((err) => {
         console.error("Error fetching AI show rate:", err);
+        if (!cancelled) {
+          setAiError("AI show rate could not be loaded.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setAiLoading(false);
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   // eslint-disable-next-line
 }, [baseUrl, selectedDate, dateMode, rangeStart, rangeEnd, presetRange, selectedMonths]);
 
@@ -478,6 +497,22 @@ useEffect(() => {
                   />
                 </div>
               )}
+              {isAnyMetricLoading && (
+                <div className="metric-loading-banner" role="status" aria-live="polite">
+                  <div className="metric-loading-copy">
+                    <strong>Calculating dashboard metrics...</strong>
+                    <span>Large date ranges can take a few moments while BookIt scans and verifies the reporting data.</span>
+                  </div>
+                  <div className="metric-loading-track" aria-hidden="true">
+                    <div className="metric-loading-bar" />
+                  </div>
+                </div>
+              )}
+              {(metricsError || aiError) && (
+                <div className="metric-error-banner" role="alert">
+                  {metricsError || aiError}
+                </div>
+              )}
               {/* Top-level KPI summary cards */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '30px' }}>
                 <div style={{
@@ -489,7 +524,7 @@ useEffect(() => {
                   textAlign: 'center'
                 }}>
                   <h3 style={{ margin: 0 }}>Total Sent</h3>
-                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{totalSent}</p>
+                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{metricsLoading ? 'Loading...' : totalSent}</p>
                 </div>
                 <div style={{
                   flex: 1,
@@ -500,7 +535,7 @@ useEffect(() => {
                   textAlign: 'center'
                 }}>
                   <h3 style={{ margin: 0 }}>Total Booked</h3>
-                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{totalBooked}</p>
+                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{metricsLoading ? 'Loading...' : totalBooked}</p>
                 </div>
                 <div style={{
                   flex: 1,
@@ -511,7 +546,7 @@ useEffect(() => {
                   textAlign: 'center'
                 }}>
                   <h3 style={{ margin: 0 }}>Percent Booked</h3>
-                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{percentBooked}%</p>
+                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{metricsLoading ? 'Loading...' : `${percentBooked}%`}</p>
                 </div>
                 <div style={{
                   flex: 1,
@@ -522,7 +557,7 @@ useEffect(() => {
                   textAlign: 'center'
                 }}>
                   <h3 style={{ margin: 0 }}>Estimated Revenue</h3>
-                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>${totalRevenue.toLocaleString()}</p>
+                  <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>{metricsLoading ? 'Loading...' : `$${totalRevenue.toLocaleString()}`}</p>
                 </div>
                 <div style={{
                   flex: 1,
@@ -535,7 +570,7 @@ useEffect(() => {
                 }}>
                   <h3 style={{ margin: 0 }}>AI Show Rate</h3>
                   <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>
-                    {aiShowRate?.show_up_rate?.toFixed(1) || 0}%
+                    {aiLoading ? 'Loading...' : `${aiShowRate?.show_up_rate?.toFixed(1) || 0}%`}
                   </p>
                 </div>
               </div>

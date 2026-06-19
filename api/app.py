@@ -6,6 +6,7 @@ import pandas as pd
 import io
 import os
 from pathlib import Path
+from boto3.dynamodb.conditions import Attr
 
 API_DIR = Path(__file__).resolve().parent
 load_dotenv(API_DIR / ".env")
@@ -76,6 +77,31 @@ def scan_all_items(table):
     return items
 
 
+def scan_items_by_created_at_prefix(table, start, end):
+    ranges = [
+        (start.strftime("%m/%d/%Y %H:%M:%S"), end.strftime("%m/%d/%Y %H:%M:%S")),
+        (start.strftime("%m/%d/%YT%H:%M:%S"), end.strftime("%m/%d/%YT%H:%M:%S")),
+        (start.strftime("%Y-%m-%d %H:%M:%S"), end.strftime("%Y-%m-%d %H:%M:%S")),
+        (start.strftime("%Y-%m-%dT%H:%M:%S"), end.strftime("%Y-%m-%dT%H:%M:%S")),
+    ]
+
+    expression = None
+    for start_value, end_value in ranges:
+        condition = Attr("created_at").between(start_value, end_value)
+        expression = condition if expression is None else expression | condition
+
+    items = []
+    response = table.scan(FilterExpression=expression)
+    items.extend(response.get('Items', []))
+    while 'LastEvaluatedKey' in response:
+        response = table.scan(
+            FilterExpression=expression,
+            ExclusiveStartKey=response['LastEvaluatedKey'],
+        )
+        items.extend(response.get('Items', []))
+    return items
+
+
 def filter_items_by_created_at(items, start, end):
     filtered = []
     for item in items:
@@ -86,7 +112,7 @@ def filter_items_by_created_at(items, start, end):
 
 
 def scan_table_by_created_at(table, start, end):
-    items = scan_all_items(table)
+    items = scan_items_by_created_at_prefix(table, start, end)
     filtered = filter_items_by_created_at(items, start, end)
     print(f"[📦] Retrieved {len(filtered)} of {len(items)} items from {table.name}")
     return filtered
