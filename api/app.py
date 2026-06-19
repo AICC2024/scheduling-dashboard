@@ -504,6 +504,7 @@ def ai_show_rate():
 def monthly_metrics_report():
     from openpyxl import Workbook
     from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.formatting.rule import ColorScaleRule, DataBarRule
     from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
     start_month = request.args.get("start", "2025-01")
@@ -519,14 +520,12 @@ def monthly_metrics_report():
     if len(months) > 36:
         return jsonify({"error": "Report range cannot exceed 36 months."}), 400
 
-    report_start, _ = month_start_end(months[0])
-    _, report_end = month_start_end(months[-1])
-    detail_records = build_live_detail_records(report_start, report_end)
     ai_items = scan_ai_booking_items()
 
     rows = []
     for month_str in months:
-        month_records = [row for row in detail_records if (row.get("Date") or "").startswith(month_str)]
+        month_start, month_end = month_start_end(month_str)
+        month_records = build_live_detail_records(month_start, month_end)
         dashboard = calculate_dashboard_metrics(month_records)
         ai = calculate_ai_show_rate([month_str], ai_items)
         ai_rate = ai["show_rate"] / 100
@@ -546,12 +545,19 @@ def monthly_metrics_report():
     ws.title = "Monthly Metrics"
     summary = wb.create_sheet("Summary")
     notes = wb.create_sheet("Source Notes")
+    ws.sheet_view.showGridLines = False
+    summary.sheet_view.showGridLines = False
+    notes.sheet_view.showGridLines = False
+    ws.sheet_properties.tabColor = "1F7A83"
+    summary.sheet_properties.tabColor = "145C63"
+    notes.sheet_properties.tabColor = "7DB7B1"
 
     primary = "145C63"
     header_fill = "D8ECE9"
     total_fill = "EEF6F5"
     note_fill = "E7F3F1"
     border_color = "C9D7D5"
+    body_fill = "FBFEFE"
     thin_border = Border(
         left=Side(style="thin", color=border_color),
         right=Side(style="thin", color=border_color),
@@ -575,6 +581,7 @@ def monthly_metrics_report():
     ws["A1"].fill = PatternFill("solid", fgColor=primary)
     ws["A1"].font = Font(color="FFFFFF", bold=True, size=16)
     ws["A1"].alignment = Alignment(horizontal="center")
+    ws.row_dimensions[1].height = 26
 
     ws.merge_cells("A2:H2")
     ws["A2"] = f"Generated on demand | Range: {start_month} through {end_month}"
@@ -589,6 +596,7 @@ def monthly_metrics_report():
         cell.font = Font(bold=True, color="173234")
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
+    ws.row_dimensions[header_row].height = 26
 
     data_start = 5
     for item in rows:
@@ -637,6 +645,11 @@ def monthly_metrics_report():
             cell.border = thin_border
             cell.alignment = Alignment(vertical="center")
 
+    for row in range(data_start, data_end + 1):
+        fill = PatternFill("solid", fgColor=body_fill if row % 2 else "F6FBFA")
+        for cell in ws[row]:
+            cell.fill = fill
+
     for row in range(data_start, grand_total_row + 1):
         ws[f"C{row}"].number_format = '#,##0'
         ws[f"D{row}"].number_format = '#,##0'
@@ -663,25 +676,48 @@ def monthly_metrics_report():
         ws.column_dimensions[col].width = width
     ws.freeze_panes = "A5"
     ws.auto_filter.ref = f"A{header_row}:H{grand_total_row}"
+    if data_start <= data_end:
+        ws.conditional_formatting.add(
+            f"E{data_start}:E{data_end}",
+            DataBarRule(start_type="min", end_type="max", color="7DB7B1", showValue=True),
+        )
+        ws.conditional_formatting.add(
+            f"H{data_start}:H{data_end}",
+            ColorScaleRule(
+                start_type="min",
+                start_color="FDE68A",
+                mid_type="percentile",
+                mid_value=50,
+                mid_color="D8ECE9",
+                end_type="max",
+                end_color="4F9D95",
+            ),
+        )
 
     summary.merge_cells("A1:H1")
     summary["A1"] = "BookIt Monthly Performance Summary"
     summary["A1"].fill = PatternFill("solid", fgColor=primary)
     summary["A1"].font = Font(color="FFFFFF", bold=True, size=16)
     summary["A1"].alignment = Alignment(horizontal="center")
+    summary.row_dimensions[1].height = 28
+    summary.merge_cells("A2:H2")
+    summary["A2"] = f"Dashboard data pulled from deployed backend. Generated workbook from {start_month} through {end_month}."
+    summary["A2"].fill = PatternFill("solid", fgColor=note_fill)
+    summary["A2"].font = Font(color="46666A", italic=True, size=10)
     summary.append([])
     summary.append(["Period", "Total Sent", "Total Booked", "Adjusted Revenue"])
-    for cell in summary[3]:
+    summary_header_row = 4
+    for cell in summary[summary_header_row]:
         cell.fill = PatternFill("solid", fgColor=header_fill)
         cell.font = Font(bold=True)
         cell.border = thin_border
     for year, row in total_rows.items():
         summary.append([str(year), f"='Monthly Metrics'!C{row}", f"='Monthly Metrics'!D{row}", f"='Monthly Metrics'!H{row}"])
     summary.append(["All Months", f"='Monthly Metrics'!C{grand_total_row}", f"='Monthly Metrics'!D{grand_total_row}", f"='Monthly Metrics'!H{grand_total_row}"])
-    for row in summary.iter_rows(min_row=4, max_row=summary.max_row, min_col=1, max_col=4):
+    for row in summary.iter_rows(min_row=summary_header_row, max_row=summary.max_row, min_col=1, max_col=4):
         for cell in row:
             cell.border = thin_border
-    for row in range(4, summary.max_row + 1):
+    for row in range(summary_header_row + 1, summary.max_row + 1):
         summary[f"B{row}"].number_format = '#,##0'
         summary[f"C{row}"].number_format = '#,##0'
         summary[f"D{row}"].number_format = '$#,##0'
