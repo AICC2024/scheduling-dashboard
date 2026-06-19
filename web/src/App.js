@@ -537,9 +537,6 @@ useEffect(() => {
                   <p style={{ fontSize: '1.5rem', margin: '8px 0 0' }}>
                     {aiShowRate?.show_up_rate?.toFixed(1) || 0}%
                   </p>
-                  <p style={{ marginTop: '6px', fontSize: '0.9rem' }}>
-                    {aiShowRate?.total_booked} booked / {aiShowRate?.total_kept} kept
-                  </p>
                 </div>
               </div>
               {/* AI Show Rate Month Dialog */}
