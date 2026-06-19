@@ -34,6 +34,8 @@ function App() {
   const [aiLoading, setAiLoading] = useState(false);
   const [metricsError, setMetricsError] = useState(null);
   const [aiError, setAiError] = useState(null);
+  const [reportGenerating, setReportGenerating] = useState(false);
+  const [reportError, setReportError] = useState(null);
   const [totalSent, setTotalSent] = useState(0);
   const [percentBooked, setPercentBooked] = useState(0);
   const [selectedStatus, setSelectedStatus] = useState(null);
@@ -117,6 +119,31 @@ function App() {
       setSelectedProvider(data['Provider Name']);
       setSelectedStatus(null);
       setProviderDetailsCollapsed(false);
+    }
+  };
+
+  const handleDownloadMetricsReport = async () => {
+    setReportGenerating(true);
+    setReportError(null);
+
+    try {
+      const res = await axios.get(`${baseUrl}/reports/monthly-metrics.xlsx`, {
+        responseType: 'blob'
+      });
+
+      const blobUrl = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = 'bookit_monthly_metrics.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error("Error generating metrics report:", err);
+      setReportError("Excel metrics report could not be generated. Please try again.");
+    } finally {
+      setReportGenerating(false);
     }
   };
 
@@ -467,7 +494,44 @@ useEffect(() => {
                     </div>
                   </div>
                 </div>
+                <div>
+                  <button
+                    onClick={handleDownloadMetricsReport}
+                    disabled={reportGenerating}
+                    style={{
+                      backgroundColor: reportGenerating ? '#9e9e9e' : '#1976d2',
+                      color: 'white',
+                      border: 'none',
+                      padding: '10px 16px',
+                      borderRadius: '4px',
+                      cursor: reportGenerating ? 'wait' : 'pointer',
+                      fontSize: '15px',
+                      marginTop: 24
+                    }}
+                  >
+                    {reportGenerating ? 'Generating Excel...' : 'Download Excel Metrics'}
+                  </button>
+                  <div style={{ marginTop: 6, color: '#666', fontSize: '0.85rem' }}>
+                    Jan 2025 through last completed month
+                  </div>
+                </div>
               </div>
+              {reportGenerating && (
+                <div className="metric-loading-banner" role="status" aria-live="polite">
+                  <div className="metric-loading-copy">
+                    <strong>Generating Excel report...</strong>
+                    <span>This can take a minute while BookIt calculates each month.</span>
+                  </div>
+                  <div className="metric-loading-track" aria-hidden="true">
+                    <div className="metric-loading-bar" />
+                  </div>
+                </div>
+              )}
+              {reportError && (
+                <div className="metric-error-banner" role="alert">
+                  {reportError}
+                </div>
+              )}
 
               {dateMode === 'preset' && (
                 <div style={{ marginBottom: 20 }}>
